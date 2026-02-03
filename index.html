@@ -1,0 +1,641 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Facility Layout Optimization Simulator</title>
+    <!-- Tailwind CSS for UI -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Three.js from CDN -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <style>
+        body {
+            margin: 0;
+            overflow: hidden;
+            font-family: 'Inter', sans-serif;
+            background-color: #1a1a1a;
+        }
+
+        #canvas-container {
+            width: 100vw;
+            height: 100vh;
+            display: block;
+        }
+
+        /* Floating UI Panel */
+        .glass-panel {
+            background: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            box-shadow: 0 8px 32px 0 rgba(31, 38, 135, 0.37);
+        }
+
+        /* Tooltip style */
+        .tooltip {
+            position: absolute;
+            background: rgba(0, 0, 0, 0.8);
+            color: white;
+            padding: 5px 10px;
+            border-radius: 4px;
+            font-size: 12px;
+            pointer-events: none;
+            display: none;
+            z-index: 100;
+        }
+
+        /* Custom Scrollbar for sidebar */
+        ::-webkit-scrollbar {
+            width: 6px;
+        }
+
+        ::-webkit-scrollbar-track {
+            background: transparent;
+        }
+
+        ::-webkit-scrollbar-thumb {
+            background: #cbd5e1;
+            border-radius: 3px;
+        }
+
+        ::-webkit-scrollbar-thumb:hover {
+            background: #94a3b8;
+        }
+    </style>
+</head>
+
+<body>
+
+    <!-- Main 3D Canvas -->
+    <div id="canvas-container"></div>
+
+    <!-- UI Overlay -->
+    <div class="absolute top-4 left-4 w-80 glass-panel rounded-xl p-6 flex flex-col gap-4 text-slate-800">
+        <h1 class="text-xl font-bold border-b border-slate-200 pb-2">Layout Optimizer</h1>
+
+        <!-- Controls -->
+        <div class="space-y-3">
+            <div class="flex justify-between items-center">
+                <span class="text-sm font-medium">Mode:</span>
+                <div class="flex bg-slate-100 rounded-lg p-1">
+                    <button id="btn-edit"
+                        class="px-3 py-1 text-xs font-bold rounded-md bg-white shadow text-blue-600 transition-all">Edit
+                        Layout</button>
+                    <button id="btn-sim"
+                        class="px-3 py-1 text-xs font-medium rounded-md text-slate-500 hover:text-slate-700 transition-all">Simulate</button>
+                </div>
+            </div>
+
+            <div class="pt-2">
+                <p class="text-xs text-slate-500 mb-2 font-semibold uppercase tracking-wider">Add Equipment</p>
+                <div class="grid grid-cols-3 gap-2">
+                    <button onclick="app.addCart()"
+                        class="flex flex-col items-center justify-center p-2 border border-slate-200 rounded hover:bg-slate-50 transition">
+                        <div class="w-6 h-6 bg-yellow-400 rounded mb-1 border border-yellow-600"></div>
+                        <span class="text-[10px]">Bin Cart</span>
+                    </button>
+                    <button onclick="app.addShelf()"
+                        class="flex flex-col items-center justify-center p-2 border border-slate-200 rounded hover:bg-slate-50 transition">
+                        <div class="w-6 h-6 bg-blue-600 rounded mb-1 border border-blue-800"></div>
+                        <span class="text-[10px]">Rack</span>
+                    </button>
+                    <button onclick="app.addTable()"
+                        class="flex flex-col items-center justify-center p-2 border border-slate-200 rounded hover:bg-slate-50 transition">
+                        <div class="w-6 h-6 bg-amber-700 rounded mb-1 border border-amber-900"></div>
+                        <span class="text-[10px]">Table</span>
+                    </button>
+                </div>
+            </div>
+
+            <div class="flex items-center gap-2 pt-2">
+                <input type="checkbox" id="show-paths" checked class="rounded text-blue-600"
+                    onchange="app.togglePaths(this.checked)">
+                <label for="show-paths" class="text-xs font-medium">Show Path Trace</label>
+            </div>
+        </div>
+
+        <!-- Simulation Stats -->
+        <div id="sim-stats" class="hidden space-y-3 pt-2 border-t border-slate-200">
+            <p class="text-xs text-slate-500 font-semibold uppercase tracking-wider">Simulation Metrics</p>
+            <div class="grid grid-cols-2 gap-3">
+                <div class="bg-slate-50 p-2 rounded">
+                    <div class="text-xs text-slate-500">Distance</div>
+                    <div class="text-lg font-mono font-bold text-blue-600"><span id="val-distance">0</span>m</div>
+                </div>
+                <div class="bg-slate-50 p-2 rounded">
+                    <div class="text-xs text-slate-500">Cycles</div>
+                    <div class="text-lg font-mono font-bold text-green-600"><span id="val-cycles">0</span></div>
+                </div>
+            </div>
+
+            <!-- System Log -->
+            <div id="sim-log"
+                class="text-[10px] bg-slate-900 border border-slate-700 text-green-400 p-2 rounded font-mono h-20 overflow-y-auto">
+                > System Ready.
+            </div>
+
+            <button onclick="app.clearTrails()"
+                class="w-full py-1 text-xs border border-slate-200 rounded hover:bg-red-50 text-red-500">Clear
+                Trails</button>
+        </div>
+
+        <!-- Instructions -->
+        <div class="text-[10px] text-slate-400 mt-2">
+            Left Click: Drag items<br>
+            Right Click: Rotate Camera<br>
+            Scroll: Zoom
+        </div>
+    </div>
+
+    <!-- Context Menu for Labels (Hidden by default) -->
+    <div id="tooltip" class="tooltip"></div>
+
+    <script>
+        /**
+         * Facility Layout Simulator
+         * Built with Three.js
+         */
+        class LayoutSimulator {
+            constructor() {
+                this.container = document.getElementById('canvas-container');
+                this.objects = []; // Draggable objects
+                this.simActive = false;
+                this.raycaster = new THREE.Raycaster();
+                this.mouse = new THREE.Vector2();
+                this.plane = null; // Drag plane
+                this.selectedObject = null;
+                this.offset = new THREE.Vector3();
+
+                // Simulation State
+                this.worker = null;
+                this.workerPath = [];
+                this.workerState = 'idle'; // idle, moving, processing
+                this.nextTaskType = 'shelf';
+                this.stats = { distance: 0, cycles: 0 };
+                this.simSpeed = 0.2;
+                this.processingTimer = 0;
+
+                // Pathfinding Grid
+                this.gridSize = 60;
+                this.gridOffset = 30;
+                this.grid = [];
+                this.trails = [];
+                this.showPaths = true;
+
+                // Colors
+                this.colors = {
+                    floor: 0xf0f0f0,
+                    grid: 0xcccccc,
+                    highlight: 0x4ade80,
+                    cartBase: 0xffd700, // Yellow
+                    cartBin: 0x9ca3af,  // Grey
+                    shelf: 0x2563eb,    // Blue
+                    table: 0xd97706     // Brown
+                };
+
+                this.init();
+                this.animate();
+                this.setupEvents();
+            }
+
+            init() {
+                // Scene
+                this.scene = new THREE.Scene();
+                this.scene.background = new THREE.Color(0xffffff);
+                this.scene.fog = new THREE.Fog(0xffffff, 20, 100);
+
+                // Camera (Isometric-ish)
+                const aspect = window.innerWidth / window.innerHeight;
+                this.camera = new THREE.PerspectiveCamera(45, aspect, 1, 1000);
+                this.camera.position.set(20, 25, 25);
+                this.camera.lookAt(0, 0, 0);
+
+                // Renderer
+                this.renderer = new THREE.WebGLRenderer({ antialias: true });
+                this.renderer.setSize(window.innerWidth, window.innerHeight);
+                this.renderer.shadowMap.enabled = true;
+                this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+                this.container.appendChild(this.renderer.domElement);
+
+                // Lights
+                const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
+                this.scene.add(ambientLight);
+
+                const dirLight = new THREE.DirectionalLight(0xffffff, 0.7);
+                dirLight.position.set(10, 20, 10);
+                dirLight.castShadow = true;
+                dirLight.shadow.mapSize.width = 2048;
+                dirLight.shadow.mapSize.height = 2048;
+                dirLight.shadow.camera.near = 0.5;
+                dirLight.shadow.camera.far = 50;
+                dirLight.shadow.camera.left = -20;
+                dirLight.shadow.camera.right = 20;
+                dirLight.shadow.camera.top = 20;
+                dirLight.shadow.camera.bottom = -20;
+                this.scene.add(dirLight);
+
+                // Floor
+                const planeGeometry = new THREE.PlaneGeometry(100, 100);
+                const planeMaterial = new THREE.MeshStandardMaterial({ color: this.colors.floor });
+                const floor = new THREE.Mesh(planeGeometry, planeMaterial);
+                floor.rotation.x = -Math.PI / 2;
+                floor.receiveShadow = true;
+                this.scene.add(floor);
+
+                // Grid
+                const gridHelper = new THREE.GridHelper(60, 60, this.colors.grid, this.colors.grid);
+                gridHelper.position.y = 0.01;
+                this.scene.add(gridHelper);
+
+                // Invisible plane for raycasting drag
+                this.dragPlane = new THREE.Mesh(
+                    new THREE.PlaneGeometry(200, 200),
+                    new THREE.MeshBasicMaterial({ visible: false })
+                );
+                this.dragPlane.rotation.x = -Math.PI / 2;
+                this.scene.add(this.dragPlane);
+
+                // Initial Scene Setup
+                this.createInitialLayout();
+
+                // Add Worker
+                this.createWorker();
+            }
+
+            createInitialLayout() {
+                // Shelf (Source)
+                const shelf = this.addShelf();
+                shelf.position.set(-8, 0, -5);
+
+                // Carts
+                const cart1 = this.addCart();
+                cart1.position.set(-2, 0, 2);
+
+                const cart2 = this.addCart();
+                cart2.position.set(4, 0, 2);
+
+                const cart3 = this.addCart();
+                cart3.position.set(-2, 0, 7);
+
+                // Table (Processing)
+                const table = this.addTable();
+                table.position.set(6, 0, -2);
+            }
+
+            // --- Object Creation Helpers ---
+
+            addCart() {
+                const group = new THREE.Group();
+                const baseGeo = new THREE.BoxGeometry(2.5, 0.4, 3.5);
+                const baseMat = new THREE.MeshStandardMaterial({ color: this.colors.cartBase });
+                const base = new THREE.Mesh(baseGeo, baseMat);
+                base.position.y = 0.4;
+                base.castShadow = true;
+                base.receiveShadow = true;
+                group.add(base);
+
+                const wheelGeo = new THREE.CylinderGeometry(0.2, 0.2, 0.2, 8);
+                const wheelMat = new THREE.MeshStandardMaterial({ color: 0x333333 });
+                [[-1, 0.2, -1.5], [1, 0.2, -1.5], [-1, 0.2, 1.5], [1, 0.2, 1.5]].forEach(pos => {
+                    const wheel = new THREE.Mesh(wheelGeo, wheelMat);
+                    wheel.rotation.z = Math.PI / 2;
+                    wheel.position.set(...pos);
+                    group.add(wheel);
+                });
+
+                const binMat = new THREE.MeshStandardMaterial({ color: this.colors.cartBin, roughness: 0.5 });
+                const w = 0.1;
+                const back = new THREE.Mesh(new THREE.BoxGeometry(2.3, 1.5, w), binMat);
+                back.position.set(0, 1.35, -1.6);
+                const front = new THREE.Mesh(new THREE.BoxGeometry(2.3, 0.8, w), binMat);
+                front.position.set(0, 1.0, 1.6);
+                const left = new THREE.Mesh(new THREE.BoxGeometry(w, 1.5, 3.3), binMat);
+                left.position.set(-1.1, 1.35, 0);
+                const right = new THREE.Mesh(new THREE.BoxGeometry(w, 1.5, 3.3), binMat);
+                right.position.set(1.1, 1.35, 0);
+                const bottom = new THREE.Mesh(new THREE.BoxGeometry(2.3, w, 3.3), binMat);
+                bottom.position.set(0, 0.6, 0);
+                group.add(back, front, left, right, bottom);
+
+                group.userData = { type: 'cart', isDraggable: true, size: { w: 3.5, d: 4.5 } };
+                group.position.set(0, 0, 0);
+                this.scene.add(group);
+                this.objects.push(group);
+                return group;
+            }
+
+            addShelf() {
+                const group = new THREE.Group();
+                const mat = new THREE.MeshStandardMaterial({ color: this.colors.shelf });
+                const postGeo = new THREE.BoxGeometry(0.2, 4, 0.2);
+                [[-2, 2, -1], [2, 2, -1], [-2, 2, 1], [2, 2, 1]].forEach(pos => {
+                    const m = new THREE.Mesh(postGeo, mat);
+                    m.position.set(...pos);
+                    m.castShadow = true;
+                    group.add(m);
+                });
+
+                const shelfGeo = new THREE.BoxGeometry(4.2, 0.1, 2.2);
+                [0.5, 1.5, 2.5, 3.5].forEach(y => {
+                    const m = new THREE.Mesh(shelfGeo, mat);
+                    m.position.set(0, y, 0);
+                    m.castShadow = true;
+                    group.add(m);
+                });
+
+                group.userData = { type: 'shelf', isDraggable: true, size: { w: 5, d: 3 } };
+                this.scene.add(group);
+                this.objects.push(group);
+                return group;
+            }
+
+            addTable() {
+                const group = new THREE.Group();
+                const topGeo = new THREE.BoxGeometry(4, 0.2, 2);
+                const topMat = new THREE.MeshStandardMaterial({ color: this.colors.table });
+                const top = new THREE.Mesh(topGeo, topMat);
+                top.position.y = 1.5;
+                top.castShadow = true;
+                group.add(top);
+
+                const legGeo = new THREE.BoxGeometry(0.2, 1.5, 0.2);
+                const legMat = new THREE.MeshStandardMaterial({ color: 0x333333 });
+                [[-1.8, 0.75, -0.8], [1.8, 0.75, -0.8], [-1.8, 0.75, 0.8], [1.8, 0.75, 0.8]].forEach(pos => {
+                    const l = new THREE.Mesh(legGeo, legMat);
+                    l.position.set(...pos);
+                    group.add(l);
+                });
+
+                group.userData = { type: 'table', isDraggable: true, size: { w: 5, d: 3 } };
+                this.scene.add(group);
+                this.objects.push(group);
+                return group;
+            }
+
+            createWorker() {
+                const group = new THREE.Group();
+                const body = new THREE.Mesh(new THREE.CylinderGeometry(0.3, 0.3, 0.8, 16), new THREE.MeshStandardMaterial({ color: 0x2563eb }));
+                body.position.y = 1.1;
+                body.castShadow = true;
+
+                const lLeg = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.12, 0.9, 16), new THREE.MeshStandardMaterial({ color: 0x333333 }));
+                lLeg.position.set(-0.15, 0.45, 0);
+                const rLeg = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.12, 0.9, 16), new THREE.MeshStandardMaterial({ color: 0x333333 }));
+                rLeg.position.set(0.15, 0.45, 0);
+
+                const head = new THREE.Mesh(new THREE.SphereGeometry(0.25, 16, 16), new THREE.MeshStandardMaterial({ color: 0xffccaa }));
+                head.position.y = 1.7;
+
+                group.add(body, lLeg, rLeg, head);
+                group.position.set(0, 0, 0);
+                this.scene.add(group);
+                this.worker = group;
+
+                this.currentTrailGeo = null;
+                this.currentTrailPositions = [];
+            }
+
+            // --- Pathfinding & Simulation ---
+
+            buildGrid() {
+                this.grid = new Array(this.gridSize).fill(0).map(() => new Array(this.gridSize).fill(0));
+                this.objects.forEach(obj => {
+                    const cx = Math.round(obj.position.x) + this.gridOffset;
+                    const cz = Math.round(obj.position.z) + this.gridOffset;
+                    const w = Math.max(1, Math.floor(obj.userData.size.w / 2));
+                    const d = Math.max(1, Math.floor(obj.userData.size.d / 2));
+                    for (let x = cx - w; x <= cx + w; x++) {
+                        for (let z = cz - d; z <= cz + d; z++) {
+                            if (x >= 0 && x < this.gridSize && z >= 0 && z < this.gridSize) {
+                                this.grid[x][z] = 1;
+                            }
+                        }
+                    }
+                });
+                const wx = Math.round(this.worker.position.x) + this.gridOffset;
+                const wz = Math.round(this.worker.position.z) + this.gridOffset;
+                if (wx >= 0 && wx < this.gridSize && wz >= 0 && wz < this.gridSize) this.grid[wx][wz] = 0;
+            }
+
+            log(msg) {
+                const el = document.getElementById('sim-log');
+                if (!el) return;
+                const line = document.createElement('div');
+                line.innerText = `> ${msg}`;
+                el.appendChild(line);
+                el.scrollTop = el.scrollHeight;
+                if (el.children.length > 30) el.removeChild(el.firstChild);
+            }
+
+            findPath(startPos, endPos) {
+                const start = { x: Math.round(startPos.x) + this.gridOffset, y: Math.round(startPos.z) + this.gridOffset };
+                const end = { x: Math.round(endPos.x) + this.gridOffset, y: Math.round(endPos.z) + this.gridOffset };
+
+                const queue = [start];
+                const visited = new Set();
+                const parent = new Map();
+                const key = (p) => `${p.x},${p.y}`;
+                visited.add(key(start));
+
+                while (queue.length > 0) {
+                    const curr = queue.shift();
+                    if (curr.x === end.x && curr.y === end.y) {
+                        const path = [];
+                        let step = curr;
+                        while (parent.has(key(step))) {
+                            path.unshift(new THREE.Vector3(step.x - this.gridOffset, 0, step.y - this.gridOffset));
+                            step = parent.get(key(step));
+                        }
+                        return path;
+                    }
+                    const neighbors = [[0, 1], [1, 0], [0, -1], [-1, 0]];
+                    for (let [dx, dy] of neighbors) {
+                        const next = { x: curr.x + dx, y: curr.y + dy };
+                        const nKey = key(next);
+                        if (next.x >= 0 && next.x < this.gridSize && next.y >= 0 && next.y < this.gridSize) {
+                            if (!visited.has(nKey) && (this.grid[next.x][next.y] === 0 || (next.x === end.x && next.y === end.y))) {
+                                visited.add(nKey);
+                                parent.set(nKey, curr);
+                                queue.push(next);
+                            }
+                        }
+                    }
+                }
+                return null;
+            }
+
+            pickNextTask() {
+                if (!this.simActive) return;
+                const candidates = this.objects.filter(o => o.userData.type === this.nextTaskType);
+                if (candidates.length === 0) {
+                    this.log(`No ${this.nextTaskType} found.`);
+                    return;
+                }
+                const targetObj = candidates[Math.floor(Math.random() * candidates.length)];
+                const offsets = [[0, 3], [0, -3], [3, 0], [-3, 0], [2, 2], [-2, -2]];
+                for (let off of offsets) {
+                    const targetPos = new THREE.Vector3(targetObj.position.x + off[0], 0, targetObj.position.z + off[1]);
+                    const path = this.findPath(this.worker.position, targetPos);
+                    if (path && path.length > 0) {
+                        this.workerPath = path;
+                        this.workerState = 'moving';
+                        this.log(`Heading to ${this.nextTaskType}.`);
+                        return;
+                    }
+                }
+                this.log("Target blocked. Retrying...");
+                setTimeout(() => this.pickNextTask(), 1000);
+            }
+
+            updateWorker() {
+                if (!this.simActive) return;
+                if (this.workerState === 'moving') {
+                    if (this.workerPath.length > 0) {
+                        const target = this.workerPath[0];
+                        const dx = target.x - this.worker.position.x;
+                        const dz = target.z - this.worker.position.z;
+                        const dist = Math.sqrt(dx * dx + dz * dz);
+                        if (dist < this.simSpeed) {
+                            this.worker.position.x = target.x;
+                            this.worker.position.z = target.z;
+                            this.workerPath.shift();
+                        } else {
+                            const angle = Math.atan2(dx, dz);
+                            this.worker.position.x += Math.sin(angle) * this.simSpeed;
+                            this.worker.position.z += Math.cos(angle) * this.simSpeed;
+                            this.worker.rotation.y = angle;
+                            this.stats.distance += this.simSpeed;
+                            this.updateStatsUI();
+                            this.updateTrail(this.worker.position);
+                        }
+                    } else {
+                        const currentType = this.nextTaskType;
+                        this.log(`Reached ${currentType}.`);
+                        this.workerState = 'processing';
+                        this.processingTimer = 60;
+                        if (currentType === 'shelf') this.nextTaskType = 'table';
+                        else if (currentType === 'table') this.nextTaskType = 'cart';
+                        else if (currentType === 'cart') { this.nextTaskType = 'shelf'; this.stats.cycles++; this.log("Cycle Complete!"); }
+                    }
+                } else if (this.workerState === 'processing') {
+                    this.processingTimer--;
+                    if (this.processingTimer <= 0) this.pickNextTask();
+                } else if (this.workerState === 'idle') {
+                    this.pickNextTask();
+                }
+            }
+
+            startSimulation() {
+                if (this.objects.length === 0) return;
+                this.simActive = true;
+                this.log("Simulation started.");
+                document.getElementById('btn-sim').className = "px-3 py-1 text-xs font-bold rounded-md bg-white shadow text-blue-600";
+                document.getElementById('btn-edit').className = "px-3 py-1 text-xs font-medium rounded-md text-slate-500 hover:text-slate-700";
+                document.getElementById('sim-stats').classList.remove('hidden');
+                this.stats = { distance: 0, cycles: 0 };
+                this.updateStatsUI();
+                this.buildGrid();
+                this.workerState = 'idle';
+                this.nextTaskType = 'shelf';
+                this.startNewTrail();
+                this.pickNextTask();
+            }
+
+            stopSimulation() {
+                this.simActive = false;
+                document.getElementById('btn-sim').className = "px-3 py-1 text-xs font-medium rounded-md text-slate-500 hover:text-slate-700";
+                document.getElementById('btn-edit').className = "px-3 py-1 text-xs font-bold rounded-md bg-white shadow text-blue-600";
+                this.workerState = 'idle';
+                this.workerPath = [];
+            }
+
+            // --- Trails ---
+
+            startNewTrail() {
+                const line = new THREE.Line(new THREE.BufferGeometry(), new THREE.LineBasicMaterial({ color: 0xff0000, transparent: true, opacity: 0.5 }));
+                line.position.y = 0.1;
+                this.scene.add(line);
+                this.trails.push(line);
+                this.currentTrailGeo = line.geometry;
+                this.currentTrailPositions = [];
+                if (!this.showPaths) line.visible = false;
+            }
+
+            updateTrail(pos) {
+                if (!this.currentTrailGeo) return;
+                if (this.currentTrailPositions.length > 0) {
+                    const last = new THREE.Vector3().fromArray(this.currentTrailPositions.slice(-3));
+                    if (last.distanceTo(pos) < 0.5) return;
+                }
+                this.currentTrailPositions.push(pos.x, pos.y + 0.1, pos.z);
+                this.currentTrailGeo.setAttribute('position', new THREE.Float32BufferAttribute(this.currentTrailPositions, 3));
+            }
+
+            togglePaths(v) { this.showPaths = v; this.trails.forEach(t => t.visible = v); }
+            clearTrails() { this.trails.forEach(t => this.scene.remove(t)); this.trails = []; if (this.simActive) this.startNewTrail(); }
+            updateStatsUI() { document.getElementById('val-distance').innerText = Math.round(this.stats.distance); document.getElementById('val-cycles').innerText = this.stats.cycles; }
+
+            // --- Events ---
+
+            setupEvents() {
+                window.addEventListener('resize', this.onWindowResize.bind(this));
+                this.container.addEventListener('mousedown', this.onMouseDown.bind(this));
+                this.container.addEventListener('mousemove', this.onMouseMove.bind(this));
+                this.container.addEventListener('mouseup', this.onMouseUp.bind(this));
+                document.getElementById('btn-edit').onclick = () => this.stopSimulation();
+                document.getElementById('btn-sim').onclick = () => this.startSimulation();
+            }
+
+            onMouseDown(e) {
+                if (this.simActive) return;
+                this.mouse.x = (e.clientX / window.innerWidth) * 2 - 1;
+                this.mouse.y = -(e.clientY / window.innerHeight) * 2 + 1;
+                this.raycaster.setFromCamera(this.mouse, this.camera);
+                const intersects = this.raycaster.intersectObjects(this.objects, true);
+                if (intersects.length > 0) {
+                    let target = intersects[0].object;
+                    while (target.parent && !target.userData.isDraggable) target = target.parent;
+                    if (target.userData.isDraggable) {
+                        this.selectedObject = target;
+                        const intersect = new THREE.Vector3();
+                        this.raycaster.ray.intersectPlane(new THREE.Plane(new THREE.Vector3(0, 1, 0), 0), intersect);
+                        this.offset.subVectors(this.selectedObject.position, intersect);
+                        this.selectedObject.position.y += 0.5;
+                        this.container.style.cursor = 'grabbing';
+                    }
+                } else { this.isRotating = true; this.lastMouseX = e.clientX; }
+            }
+
+            onMouseMove(e) {
+                if (this.selectedObject) {
+                    this.mouse.x = (e.clientX / window.innerWidth) * 2 - 1;
+                    this.mouse.y = -(e.clientY / window.innerHeight) * 2 + 1;
+                    this.raycaster.setFromCamera(this.mouse, this.camera);
+                    const intersect = new THREE.Vector3();
+                    if (this.raycaster.ray.intersectPlane(new THREE.Plane(new THREE.Vector3(0, 1, 0), 0), intersect)) {
+                        const newPos = intersect.add(this.offset);
+                        newPos.x = Math.round(newPos.x); newPos.z = Math.round(newPos.z); newPos.y = 0.5;
+                        this.selectedObject.position.copy(newPos);
+                    }
+                } else if (this.isRotating) {
+                    const deltaX = e.clientX - this.lastMouseX;
+                    this.lastMouseX = e.clientX;
+                    const angle = -deltaX * 0.005;
+                    const x = this.camera.position.x;
+                    const z = this.camera.position.z;
+                    this.camera.position.x = x * Math.cos(angle) - z * Math.sin(angle);
+                    this.camera.position.z = x * Math.sin(angle) + z * Math.cos(angle);
+                    this.camera.lookAt(0, 0, 0);
+                }
+            }
+
+            onMouseUp() { if (this.selectedObject) { this.selectedObject.position.y = 0; this.selectedObject = null; this.container.style.cursor = 'default'; } this.isRotating = false; }
+            onWindowResize() { this.camera.aspect = window.innerWidth / window.innerHeight; this.camera.updateProjectionMatrix(); this.renderer.setSize(window.innerWidth, window.innerHeight); }
+            animate() { requestAnimationFrame(this.animate.bind(this)); if (this.simActive) this.updateWorker(); this.renderer.render(this.scene, this.camera); }
+        }
+        const app = new LayoutSimulator();
+        window.app = app;
+    </script>
+</body>
+
+</html>
